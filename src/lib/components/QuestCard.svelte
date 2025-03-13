@@ -1,11 +1,19 @@
 <script lang="ts">
+    import { api } from '../services/api';
+    
+    export let id: number;
     export let buildingName: string;
     export let address: string;
     export let showOnMap: boolean = false;
 
-    function discardQuest() {
-        // クエスト破棄の処理をここに実装
-        alert('クエストを破棄しました');
+    async function discardQuest() {
+        try {
+            await api.deleteQuest(id);
+            alert('クエストを破棄しました');
+        } catch (error) {
+            console.error('クエスト破棄エラー:', error);
+            alert('クエストの破棄に失敗しました');
+        }
     }
 </script>
 

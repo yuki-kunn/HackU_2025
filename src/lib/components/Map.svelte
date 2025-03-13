@@ -7,6 +7,35 @@
     let userLocation: google.maps.LatLngLiteral | null = null;
     let watchId: number;
 
+    async function fetchNearbyLandmarks(position: google.maps.LatLngLiteral) {
+        try {
+            const response = await fetch(
+                `http://localhost:3000/landmark?lat=${position.lat}&lng=${position.lng}&radius=1000`
+            );
+
+            if (!response.ok) {
+                throw new Error('Failed to fetch landmarks');
+            }
+
+            const landmarks = await response.json();
+            // ランドマークをマップに表示する処理
+            displayLandmarks(landmarks);
+        } catch (error) {
+            console.error('Error fetching landmarks:', error);
+        }
+    }
+
+    function displayLandmarks(landmarks: any[]) {
+        landmarks.forEach(landmark => {
+            new google.maps.Marker({
+                position: { lat: Number(landmark.lat), lng: Number(landmark.lng) },
+                map: map,
+                title: landmark.name
+            });
+        });
+    }
+
+    // 位置情報更新時にランドマーク取得を実行
     function handleLocationUpdate(position: GeolocationPosition) {
         const { latitude, longitude } = position.coords;
         userLocation = { lat: latitude, lng: longitude };
@@ -50,6 +79,9 @@
                 radius: 50 // 半径50メートル
             });
         }
+
+        // 近くのランドマークを取得
+        fetchNearbyLandmarks(userLocation);
     }
 
     function handleLocationError(error: GeolocationPositionError) {
