@@ -14,6 +14,9 @@
   let visitedLandmarkDetails: StoredLandmark[] = [];
   let permanentMarkers: google.maps.Marker[] = [];
   
+  // グローバル変数として現在開いている InfoWindow を保持
+  let currentInfoWindow: google.maps.InfoWindow | null = null;
+  
   // イベント通知用
   const dispatch = createEventDispatcher();
   
@@ -66,7 +69,12 @@
       });
       
       marker.addListener('click', () => {
+        // 既に開いている InfoWindow があれば閉じる
+        if (currentInfoWindow) {
+          currentInfoWindow.close();
+        }
         infoWindow.open(map, marker);
+        currentInfoWindow = infoWindow;
       });
       
       permanentMarkers.push(marker);
@@ -154,7 +162,12 @@
     });
     
     marker.addListener('click', () => {
+      // 既に開いている InfoWindow があれば閉じる
+      if (currentInfoWindow) {
+        currentInfoWindow.close();
+      }
       infoWindow.open(map, marker);
+      currentInfoWindow = infoWindow;
     });
     
     permanentMarkers.push(marker);
@@ -231,7 +244,12 @@
       });
       
       marker.addListener('click', () => {
+        // 既に開いている InfoWindow があれば閉じる
+        if (currentInfoWindow) {
+          currentInfoWindow.close();
+        }
         infoWindow.open(map, marker);
+        currentInfoWindow = infoWindow;
       });
       
       // マーカー配列に追加

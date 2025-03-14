@@ -40,14 +40,22 @@ export const getLandmarkColor = (genreCode: string | undefined): string => {
  * ランドマークの情報ウィンドウ用HTMLを生成
  */
 export const createLandmarkInfoContent = (landmark: Landmark, isVisited: boolean): string => {
-  return `
-    <div>
-      <h3>${landmark.name || 'Unknown landmark'}</h3>
-      <p>${landmark.address || 'No address available'}</p>
-      ${landmark.genre_name ? `<p>Genre: ${landmark.genre_name}</p>` : ''}
-      ${landmark.tel ? `<p>Tel: ${landmark.tel}</p>` : ''}
-      ${landmark.detail ? `<p>${landmark.detail}</p>` : ''}
-      ${isVisited ? '<p><strong>✓ 訪問済み</strong></p>' : ''}
-    </div>
-  `;
+  if (isVisited) {
+    return `
+      <div>
+        <h3>${landmark.name}</h3>
+        <p>${landmark.address || '住所情報なし'}</p>
+        <p>${landmark.genre_code || ''}</p>
+        <p>✓ 訪問済み</p>
+      </div>
+    `;
+  } else {
+    return `
+      <div>
+        <h3>？？？</h3>
+        <p>${landmark.address || '住所情報なし'}</p>
+        <p>未訪問</p>
+      </div>
+    `;
+  }
 };

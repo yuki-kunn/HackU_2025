@@ -12,7 +12,7 @@
   
   const dispatch = createEventDispatcher();
   
-  // 位置情報更新時の処理
+  // 位置情報更新時の処理を修正
   function handleLocationUpdate(position: GeolocationPosition) {
     const { latitude, longitude } = position.coords;
     const newLocation = { lat: latitude, lng: longitude };
@@ -33,7 +33,7 @@
 
     // 現在位置のマーカーを更新または作成
     if (userLocationMarker) {
-      userLocationMarker.setPosition(userLocation);
+      updateMarkerAndCircle(userLocation);
     } else if (map) {
       userLocationMarker = new google.maps.Marker({
         position: userLocation,
@@ -57,19 +57,24 @@
             lat: newPosition.lat(),
             lng: newPosition.lng()
           };
+          // 円も同時に更新するために共通関数を使用
+          updateMarkerAndCircle(userLocation);
           dispatch('locationUpdate', { location: userLocation, shouldUpdate: true });
-          // Update circle center after marker drag
-          if (userLocationCircle) {
-            userLocationCircle.setCenter(userLocation);
-          }
         }
       });
-    }
 
-    // 円を更新または作成
-    if (userLocationCircle) {
-      userLocationCircle.setCenter(userLocation);
-    } else if (map) {
+      // ドラッグ中も円を同期させる
+      userLocationMarker.addListener('drag', () => {
+        const currentPosition = userLocationMarker?.getPosition();
+        if (currentPosition && userLocationCircle) {
+          userLocationCircle.setCenter({
+            lat: currentPosition.lat(),
+            lng: currentPosition.lng()
+          });
+        }
+      });
+
+      // 円を作成 (初回のみ)
       userLocationCircle = new google.maps.Circle({
         strokeColor: '#4285F4',
         strokeOpacity: 0.8,
@@ -135,8 +140,79 @@
     }, 600000); // 10分ごと
   }
   
+  // キーボードの矢印キーで移動する距離（メートル）
+  const KEY_MOVE_STEP = 20;
+  
+  // 方向キーでの移動を処理
+  function handleKeyDown(event: KeyboardEvent) {
+    if (!userLocation) return;
+    
+    let lat = userLocation.lat;
+    let lng = userLocation.lng;
+    let moved = false;
+    
+    // 緯度経度の1度あたりのメートル数（概算）
+    const meterPerLat = 111111; // 緯度は約111kmで一定
+    const meterPerLng = 111111 * Math.cos(userLocation.lat * (Math.PI / 180)); // 経度は緯度によって変化
+    
+    // 矢印キーに応じて位置を更新
+    switch (event.key) {
+      case 'ArrowUp':
+        lat += KEY_MOVE_STEP / meterPerLat;
+        moved = true;
+        break;
+      case 'ArrowDown':
+        lat -= KEY_MOVE_STEP / meterPerLat;
+        moved = true;
+        break;
+      case 'ArrowLeft':
+        lng -= KEY_MOVE_STEP / meterPerLng;
+        moved = true;
+        break;
+      case 'ArrowRight':
+        lng += KEY_MOVE_STEP / meterPerLng;
+        moved = true;
+        break;
+      default:
+        return; // 他のキーは無視
+    }
+    
+    if (moved) {
+      // 位置を更新
+      userLocation = { lat, lng };
+      
+      // マーカーと円を更新
+      updateMarkerAndCircle(userLocation);
+      
+      // 位置変更イベントをディスパッチ
+      dispatch('locationUpdate', { 
+        location: userLocation, 
+        shouldUpdate: true 
+      });
+      
+      // イベントのデフォルト動作を防止（ページスクロールなど）
+      event.preventDefault();
+    }
+  }
+
+  // マーカーと円を更新する共通関数（常に同期を保つ）
+  function updateMarkerAndCircle(location: google.maps.LatLngLiteral) {
+    // マーカーを更新
+    if (userLocationMarker) {
+      userLocationMarker.setPosition(location);
+    }
+    
+    // 円を更新
+    if (userLocationCircle) {
+      userLocationCircle.setCenter(location);
+    }
+  }
+  
   onMount(() => {
     startLocationTracking();
+    
+    // キーボードイベントのリスナーを登録
+    window.addEventListener('keydown', handleKeyDown);
   });
   
   onDestroy(() => {
@@ -158,5 +234,8 @@
     if (userLocationCircle) {
       userLocationCircle.setMap(null);
     }
+    
+    // キーボードイベントのリスナーを削除
+    window.removeEventListener('keydown', handleKeyDown);
   });
 </script>
