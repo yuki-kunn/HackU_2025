@@ -2,7 +2,7 @@
     let user = {
       name: "ユキ",
       level: 12,
-      avatar: "https://msp.c.yimg.jp/images/v2/FUTi93tXq405grZVGgDqG_omiYkNVym1Sd6g5T38MuTBDc4e9p3cTQ3M1cJm6kfTRkmZ4X5MmIP-RrP7FpKOzyPt5AzlTGdY9vZYmaKfAph44pt90rI9pEZ7Jt945A8VRpXI8zagw7M7s6pqkyURoNtEBa1uLar3vNFb-CCICfGNJ6g6aGJLt-uJqmg_oIyinMW6KksqaGiTk6ji3sEkOPjr50-EXYZCB71JfQqFZEIucZcnl9nFAaQx4uB5ICpl/WWuDBAV-_400x400.jpg?errorImage=false",
+      avatar: "https://cdn.discordapp.com/attachments/1339551213045288991/1350114889930379314/B2E575C6-D0FB-4585-BA0B-A83D1195AB8C.jpg?ex=67d58ff9&is=67d43e79&hm=5664853584ff3d645e9374fd317ff86d45341e24ce85e58e3de926cef4e50074&",
       comment: "",
       sections: [
         { title: "クエスト", items: 3 },
