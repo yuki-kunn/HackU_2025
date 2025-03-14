@@ -22,7 +22,7 @@
       google.maps.geometry.spherical.computeDistanceBetween(
         new google.maps.LatLng(userLocation),
         new google.maps.LatLng(newLocation)
-      ) > 10; // 10m以上移動した場合
+      ) > 1000; // 10m以上移動した場合
     
     userLocation = newLocation;
 
@@ -46,6 +46,22 @@
           fillOpacity: 1,
           strokeColor: 'white',
           strokeWeight: 2
+        },
+        draggable: true
+      });
+
+      userLocationMarker.addListener('dragend', () => {
+        const newPosition = userLocationMarker?.getPosition();
+        if (newPosition) {
+          userLocation = {
+            lat: newPosition.lat(),
+            lng: newPosition.lng()
+          };
+          dispatch('locationUpdate', { location: userLocation, shouldUpdate: true });
+          // Update circle center after marker drag
+          if (userLocationCircle) {
+            userLocationCircle.setCenter(userLocation);
+          }
         }
       });
     }
@@ -111,12 +127,12 @@
       clearInterval(locationUpdateTimer);
     }
     
-    // 5分ごとに実行するタイマーをセット（300000ミリ秒 = 5分）
+    // 10分ごとに実行するタイマーをセット（600000ミリ秒 = 10分）
     locationUpdateTimer = setInterval(() => {
       if (userLocation) {
         dispatch('periodicUpdate', { location: userLocation });
       }
-    }, 300000); // 5分ごと
+    }, 600000); // 10分ごと
   }
   
   onMount(() => {

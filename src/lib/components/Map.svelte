@@ -3,7 +3,8 @@
   import UserLocation from './map/UserLocation.svelte';
   import LandmarkManager from './map/LandmarkManager.svelte';
   import CrimeAreaManager from './map/CrimeAreaManager.svelte';
-  import VisitNotification from './map/VisitNotification.svelte';
+  import DiscoveryNotification from './map/DiscoveryNotification.svelte';
+  import MapSidebar from './map/MapSidebar.svelte';
   import type { Landmark } from './map/utils/landmarkUtils';
 
   let map: google.maps.Map;
@@ -19,6 +20,9 @@
   let showNotification = false;
   let currentNotification: Landmark | null = null;
   let notificationQueue: Landmark[] = [];
+  let showDiscoveryNotification = false;
+  let currentDiscovery = null;
+  let discoveryQueue: any[] = [];
   
   /**
    * 位置情報と共に近くのランドマークを取得する関数
@@ -135,15 +139,21 @@
    * ランドマーク訪問時の処理
    */
   function handleLandmarkVisited(event: CustomEvent) {
-    const newlyVisited = event.detail.landmarks;
-    if (newlyVisited && newlyVisited.length > 0) {
+    const newLandmarks = event.detail.landmarks;
+    
+    newLandmarks.forEach(landmark => {
       // 通知キューに追加
-      notificationQueue = [...notificationQueue, ...newlyVisited];
-      
-      // 通知が表示されていなければ表示開始
-      if (!showNotification && notificationQueue.length > 0) {
-        showNextNotification();
-      }
+      notificationQueue.push(landmark);
+      discoveryQueue.push(landmark);
+    });
+    
+    // 通知が表示されていない場合は、次の通知を表示
+    if (!showNotification) {
+      showNextNotification();
+    }
+    
+    if (!showDiscoveryNotification) {
+      showNextDiscovery();
     }
   }
 
@@ -161,6 +171,16 @@
   }
 
   /**
+   * 次の発見通知を表示
+   */
+  function showNextDiscovery() {
+    if (discoveryQueue.length === 0) return;
+    
+    currentDiscovery = discoveryQueue.shift();
+    showDiscoveryNotification = true;
+  }
+
+  /**
    * 通知クローズ時の処理
    */
   function handleNotificationClose() {
@@ -170,6 +190,19 @@
     // キューに次の通知があれば表示
     if (notificationQueue.length > 0) {
       setTimeout(showNextNotification, 300); // 少し遅延させて表示
+    }
+  }
+
+  /**
+   * 通知クローズ時の処理
+   */
+  function handleDiscoveryClose() {
+    showDiscoveryNotification = false;
+    currentDiscovery = null;
+    
+    // キューに次の通知があれば表示
+    if (discoveryQueue.length > 0) {
+      setTimeout(showNextDiscovery, 500); // 少し遅延させて表示
     }
   }
 
@@ -195,14 +228,19 @@
           "stylers": [{ "color": "#0e1626" }]
         },
         {
+          "featureType": "road",
+          "elementType": "labels",
+          "stylers": [{ "visibility": "off" }]
+        },
+        {
           "featureType": "administrative.locality",
           "elementType": "labels.text.fill",
           "stylers": [{ "color": "#b0b0b0" }]
         },
         {
           "featureType": "poi",
-          "elementType": "labels.text.fill",
-          "stylers": [{ "color": "#b0b0b0" }]
+          "elementType": "labels",
+          "stylers": [{ "visibility": "off" }]
         },
         {
           "featureType": "poi.park",
@@ -211,8 +249,8 @@
         },
         {
           "featureType": "poi.park",
-          "elementType": "labels.text.fill",
-          "stylers": [{ "color": "#5b757f" }]
+          "elementType": "labels.text",
+          "stylers": [{ "visibility": "off" }]
         },
         {
           "featureType": "road",
@@ -225,29 +263,9 @@
           "stylers": [{ "color": "#8a9aab" }]
         },
         {
-          "featureType": "road.highway",
-          "elementType": "geometry",
-          "stylers": [{ "color": "#1b3553" }]
-        },
-        {
-          "featureType": "road.highway",
-          "elementType": "geometry.stroke",
-          "stylers": [{ "color": "#1b3553" }]
-        },
-        {
-          "featureType": "road.highway",
-          "elementType": "labels.text.fill",
-          "stylers": [{ "color": "#b0c3d5" }]
-        },
-        {
           "featureType": "transit",
-          "elementType": "geometry",
-          "stylers": [{ "color": "#182731" }]
-        },
-        {
-          "featureType": "transit.station",
-          "elementType": "labels.text.fill",
-          "stylers": [{ "color": "#d2d2d2" }]
+          "elementType": "labels",
+          "stylers": [{ "visibility": "off" }]
         },
         {
           "featureType": "water",
@@ -256,8 +274,8 @@
         },
         {
           "featureType": "water",
-          "elementType": "labels.text.fill",
-          "stylers": [{ "color": "#515c6d" }]
+          "elementType": "labels.text",
+          "stylers": [{ "visibility": "off" }]
         }
       ]
     };
@@ -292,6 +310,9 @@
     bind:showCrimeAreas
     bind:this={crimeAreaManagerComponent}
   />
+  
+  <!-- サイドバー -->
+  <MapSidebar bind:showCrimeAreas={showCrimeAreas} />
 {/if}
 
 <!-- 犯罪エリア表示切り替えボタン -->
@@ -300,11 +321,12 @@
     犯罪多発エリア {showCrimeAreas ? 'ON' : 'OFF'}
 </button>
 
-<!-- 訪問通知 -->
-{#if showNotification && currentNotification}
-  <VisitNotification 
-    landmark={currentNotification}
-    on:close={handleNotificationClose}
+
+<!-- 発見通知 -->
+{#if showDiscoveryNotification && currentDiscovery}
+  <DiscoveryNotification 
+    landmark={currentDiscovery}
+    on:close={handleDiscoveryClose}
   />
 {/if}
 
@@ -313,34 +335,5 @@
     width: 100%;
     height: 100%;
     position: relative;
-  }
-
-  .toggle-button {
-    position: absolute;
-    top: 20px;
-    right: 20px;
-    z-index: 10;
-    background-color: white;
-    border: 1px solid #ccc;
-    border-radius: 4px;
-    padding: 10px;
-    box-shadow: 0 2px 6px rgba(0,0,0,0.3);
-    display: flex;
-    align-items: center;
-    font-family: sans-serif;
-    cursor: pointer;
-  }
-  
-  .toggle-button.active {
-    background-color: #f8f8f8;
-  }
-  
-  .toggle-icon {
-    width: 24px;
-    height: 24px;
-    border-radius: 50%;
-    background-color: #FF0000;
-    margin-right: 8px;
-    opacity: 0.7;
   }
 </style>

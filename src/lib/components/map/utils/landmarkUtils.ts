@@ -3,9 +3,9 @@
 export interface Landmark {
   id?: string;
   name: string;
+  latitude: number | string;
+  longitude: number | string;
   address?: string;
-  latitude: number;
-  longitude: number;
   genre_code?: string;
   genre_name?: string;
   tel?: string;
