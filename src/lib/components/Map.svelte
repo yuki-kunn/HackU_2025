@@ -1,154 +1,346 @@
 <script lang="ts">
-    import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
+  import UserLocation from './map/UserLocation.svelte';
+  import LandmarkManager from './map/LandmarkManager.svelte';
+  import CrimeAreaManager from './map/CrimeAreaManager.svelte';
+  import VisitNotification from './map/VisitNotification.svelte';
+  import type { Landmark } from './map/utils/landmarkUtils';
 
-    let map: google.maps.Map;
-    let userLocationMarker: google.maps.Marker | null = null;
-    let userLocationCircle: google.maps.Circle | null = null;
-    let userLocation: google.maps.LatLngLiteral | null = null;
-    let watchId: number;
+  let map: google.maps.Map;
+  let userLocation: google.maps.LatLngLiteral | null = null;
+  let showCrimeAreas = true;
+  
+  // コンポーネントの参照
+  let userLocationComponent: UserLocation;
+  let landmarkManagerComponent: LandmarkManager;
+  let crimeAreaManagerComponent: CrimeAreaManager;
+  
+  // 通知関連
+  let showNotification = false;
+  let currentNotification: Landmark | null = null;
+  let notificationQueue: Landmark[] = [];
+  
+  /**
+   * 位置情報と共に近くのランドマークを取得する関数
+   */
+  async function sendLocationAndFetchLandmarks(position: google.maps.LatLngLiteral) {
+    try {
+      console.log(`Sending location update and fetching landmarks: lat=${position.lat}, lng=${position.lng}`);
+      
+      const response = await fetch('http://localhost:3000/user-location/with-landmarks', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify({
+          latitude: position.lat,
+          longitude: position.lng,
+          user_id: 'anonymous' // 実際のアプリではユーザーIDを設定
+        }),
+        credentials: 'omit'
+      });
 
-    async function fetchNearbyLandmarks(position: google.maps.LatLngLiteral) {
-        try {
-            const response = await fetch(
-                `http://localhost:3000/landmark?lat=${position.lat}&lng=${position.lng}&radius=1000`
-            );
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        console.error('API error response:', errorData);
+        throw new Error(`API responded with status: ${response.status}`);
+      }
 
-            if (!response.ok) {
-                throw new Error('Failed to fetch landmarks');
-            }
-
-            const landmarks = await response.json();
-            // ランドマークをマップに表示する処理
-            displayLandmarks(landmarks);
-        } catch (error) {
-            console.error('Error fetching landmarks:', error);
-        }
+      const data = await response.json();
+      console.log(`Received ${data.landmarks?.length || 0} landmarks from server`);
+      
+      if (data.landmarks && Array.isArray(data.landmarks)) {
+        landmarkManagerComponent.updateLandmarksOnMap(data.landmarks);
+      } else {
+        console.warn('No landmarks data in response or invalid format');
+        // バックアップとして直接ランドマークを取得
+        fetchNearbyLandmarks(position);
+      }
+    } catch (error) {
+      console.error('Error sending location and fetching landmarks:', error);
+      // エラー時はバックアップAPIを使用
+      fetchNearbyLandmarks(position);
     }
+  }
 
-    function displayLandmarks(landmarks: any[]) {
-        landmarks.forEach(landmark => {
-            new google.maps.Marker({
-                position: { lat: Number(landmark.lat), lng: Number(landmark.lng) },
-                map: map,
-                title: landmark.name
-            });
-        });
-    }
-
-    // 位置情報更新時にランドマーク取得を実行
-    function handleLocationUpdate(position: GeolocationPosition) {
-        const { latitude, longitude } = position.coords;
-        userLocation = { lat: latitude, lng: longitude };
-
-        // マップの中心を現在位置に移動
-        if (map) {
-            map.setCenter(userLocation);
+  /**
+   * バックアップAPIを使用してランドマークを取得
+   */
+  async function fetchNearbyLandmarks(position: google.maps.LatLngLiteral) {
+    try {
+      console.log('Using backup API to fetch landmarks');
+      
+      const response = await fetch(`http://localhost:3000/landmark?lat=${position.lat}&lng=${position.lng}&radius=1000`, {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json'
         }
+      });
 
-        // 現在位置のマーカーを更新または作成
-        if (userLocationMarker) {
-            userLocationMarker.setPosition(userLocation);
-        } else if (map) {
-            userLocationMarker = new google.maps.Marker({
-                position: userLocation,
-                map: map,
-                title: '現在地',
-                icon: {
-                    path: google.maps.SymbolPath.CIRCLE,
-                    scale: 8,
-                    fillColor: '#4285F4',
-                    fillOpacity: 1,
-                    strokeColor: 'white',
-                    strokeWeight: 2
-                }
-            });
-        }
+      if (!response.ok) {
+        throw new Error(`Backup API responded with status: ${response.status}`);
+      }
 
-        // 円を更新または作成
-        if (userLocationCircle) {
-            userLocationCircle.setCenter(userLocation);
-        } else if (map) {
-            userLocationCircle = new google.maps.Circle({
-                strokeColor: '#4285F4',
-                strokeOpacity: 0.8,
-                strokeWeight: 2,
-                fillColor: '#4285F4',
-                fillOpacity: 0.2,
-                map,
-                center: userLocation,
-                radius: 50 // 半径50メートル
-            });
-        }
-
-        // 近くのランドマークを取得
-        fetchNearbyLandmarks(userLocation);
+      const data = await response.json();
+      
+      if (data.landmarks && Array.isArray(data.landmarks)) {
+        landmarkManagerComponent.updateLandmarksOnMap(data.landmarks);
+      } else if (Array.isArray(data)) {
+        landmarkManagerComponent.updateLandmarksOnMap(data);
+      } else {
+        console.warn('No landmarks returned from backup API');
+      }
+    } catch (error) {
+      console.error('Error fetching landmarks from backup API:', error);
     }
+  }
 
-    function handleLocationError(error: GeolocationPositionError) {
-        console.error('位置情報の取得に失敗しました:', error.message);
-        // ユーザーへのエラー通知などの処理を追加できます
+  /**
+   * 犯罪エリアの表示/非表示を切り替える関数
+   */
+  function toggleCrimeAreas() {
+    showCrimeAreas = !showCrimeAreas;
+  }
+
+  /**
+   * ユーザー位置が更新されたときの処理
+   */
+  function handleLocationUpdate(event: CustomEvent) {
+    userLocation = event.detail.location;
+    
+    if (event.detail.shouldUpdate) {
+      // 位置が大きく変わった場合のみランドマークを再取得
+      sendLocationAndFetchLandmarks(userLocation);
     }
+  }
 
-    function startLocationTracking() {
-        if (navigator.geolocation) {
-            // 最初に一度現在位置を取得
-            navigator.geolocation.getCurrentPosition(
-                handleLocationUpdate,
-                handleLocationError,
-                { enableHighAccuracy: true }
-            );
+  /**
+   * 位置情報エラー時の処理
+   */
+  function handleLocationError(event: CustomEvent) {
+    console.error('位置情報エラー:', event.detail.error);
+    // バックアップAPIを使用してランドマークを取得（固定位置）
+    fetchNearbyLandmarks({ lat: 34.6937, lng: 135.5023 }); // 大阪市の中心付近
+  }
 
-            // 継続的に現在位置を監視
-            watchId = navigator.geolocation.watchPosition(
-                handleLocationUpdate,
-                handleLocationError,
-                { enableHighAccuracy: true }
-            );
-        } else {
-            console.error('このブラウザは位置情報をサポートしていません。');
+  /**
+   * 5分ごとの定期更新処理
+   */
+  function handlePeriodicUpdate(event: CustomEvent) {
+    sendLocationAndFetchLandmarks(event.detail.location);
+  }
+
+  /**
+   * ランドマーク訪問時の処理
+   */
+  function handleLandmarkVisited(event: CustomEvent) {
+    const newlyVisited = event.detail.landmarks;
+    if (newlyVisited && newlyVisited.length > 0) {
+      // 通知キューに追加
+      notificationQueue = [...notificationQueue, ...newlyVisited];
+      
+      // 通知が表示されていなければ表示開始
+      if (!showNotification && notificationQueue.length > 0) {
+        showNextNotification();
+      }
+    }
+  }
+
+  /**
+   * 次の通知を表示
+   */
+  function showNextNotification() {
+    if (notificationQueue.length > 0) {
+      currentNotification = notificationQueue.shift();
+      showNotification = true;
+    } else {
+      showNotification = false;
+      currentNotification = null;
+    }
+  }
+
+  /**
+   * 通知クローズ時の処理
+   */
+  function handleNotificationClose() {
+    showNotification = false;
+    currentNotification = null;
+    
+    // キューに次の通知があれば表示
+    if (notificationQueue.length > 0) {
+      setTimeout(showNextNotification, 300); // 少し遅延させて表示
+    }
+  }
+
+  onMount(() => {
+    const mapOptions = {
+      center: { lat: 34.6937, lng: 135.5023 }, // 大阪の中心付近
+      zoom: 15,
+      mapTypeControl: false,
+      streetViewControl: false,
+      fullscreenControl: false,
+      zoomControl: true,
+      zoomControlOptions: {
+        position: google.maps.ControlPosition.RIGHT_BOTTOM
+      },
+      // ゲーム風の暗い青系のマップスタイル
+      styles: [
+        { "elementType": "geometry", "stylers": [{ "color": "#0e1626" }] },
+        { "elementType": "labels.text.stroke", "stylers": [{ "color": "#0e1626" }] },
+        { "elementType": "labels.text.fill", "stylers": [{ "color": "#c5c5c5" }] },
+        {
+          "featureType": "administrative",
+          "elementType": "geometry",
+          "stylers": [{ "color": "#0e1626" }]
+        },
+        {
+          "featureType": "administrative.locality",
+          "elementType": "labels.text.fill",
+          "stylers": [{ "color": "#b0b0b0" }]
+        },
+        {
+          "featureType": "poi",
+          "elementType": "labels.text.fill",
+          "stylers": [{ "color": "#b0b0b0" }]
+        },
+        {
+          "featureType": "poi.park",
+          "elementType": "geometry",
+          "stylers": [{ "color": "#133d36" }]
+        },
+        {
+          "featureType": "poi.park",
+          "elementType": "labels.text.fill",
+          "stylers": [{ "color": "#5b757f" }]
+        },
+        {
+          "featureType": "road",
+          "elementType": "geometry",
+          "stylers": [{ "color": "#1c2e4a" }]
+        },
+        {
+          "featureType": "road",
+          "elementType": "labels.text.fill",
+          "stylers": [{ "color": "#8a9aab" }]
+        },
+        {
+          "featureType": "road.highway",
+          "elementType": "geometry",
+          "stylers": [{ "color": "#1b3553" }]
+        },
+        {
+          "featureType": "road.highway",
+          "elementType": "geometry.stroke",
+          "stylers": [{ "color": "#1b3553" }]
+        },
+        {
+          "featureType": "road.highway",
+          "elementType": "labels.text.fill",
+          "stylers": [{ "color": "#b0c3d5" }]
+        },
+        {
+          "featureType": "transit",
+          "elementType": "geometry",
+          "stylers": [{ "color": "#182731" }]
+        },
+        {
+          "featureType": "transit.station",
+          "elementType": "labels.text.fill",
+          "stylers": [{ "color": "#d2d2d2" }]
+        },
+        {
+          "featureType": "water",
+          "elementType": "geometry",
+          "stylers": [{ "color": "#17263c" }]
+        },
+        {
+          "featureType": "water",
+          "elementType": "labels.text.fill",
+          "stylers": [{ "color": "#515c6d" }]
         }
-    }
-
-    onMount(() => {
-        const mapOptions = {
-            center: { lat: 35.6895, lng: 139.6917 },
-            zoom: 15,
-            mapTypeControl: false,
-            streetViewControl: false,
-            fullscreenControl: false,
-            zoomControl: false,
-            disableDefaultUI: true,
-            styles: [
-                {
-                    featureType: 'poi', // POI（Point of Interest）を非表示
-                    elementType: 'labels', // ラベルを非表示
-                    stylers: [{ visibility: 'off' }] // styleを適用
-                }
-            ]
-        };
-
-        map = new google.maps.Map(
-            document.getElementById('map') as HTMLElement,
-            mapOptions
-        );
-
-        // 位置情報トラッキングの開始
-        startLocationTracking();
-
-        return () => {
-            // コンポーネントのクリーンアップ時に位置情報の監視を停止
-            if (watchId !== undefined) {
-                navigator.geolocation.clearWatch(watchId);
-            }
-        };
-    });
+      ]
+    };
+    
+    map = new google.maps.Map(
+      document.getElementById('map') as HTMLElement,
+      mapOptions
+    );
+  });
 </script>
 
 <div id="map"></div>
 
+{#if map}
+  <UserLocation 
+    {map}
+    bind:this={userLocationComponent}
+    on:locationUpdate={handleLocationUpdate}
+    on:locationError={handleLocationError}
+    on:periodicUpdate={handlePeriodicUpdate}
+  />
+
+  <LandmarkManager
+    {map}
+    {userLocation}
+    bind:this={landmarkManagerComponent}
+    on:landmarkVisited={handleLandmarkVisited}
+  />
+
+  <CrimeAreaManager
+    {map}
+    bind:showCrimeAreas
+    bind:this={crimeAreaManagerComponent}
+  />
+{/if}
+
+<!-- 犯罪エリア表示切り替えボタン -->
+<button class="toggle-button" class:active={showCrimeAreas} on:click={toggleCrimeAreas}>
+    <div class="toggle-icon"></div>
+    犯罪多発エリア {showCrimeAreas ? 'ON' : 'OFF'}
+</button>
+
+<!-- 訪問通知 -->
+{#if showNotification && currentNotification}
+  <VisitNotification 
+    landmark={currentNotification}
+    on:close={handleNotificationClose}
+  />
+{/if}
+
 <style>
-    #map {
-        width: 100%;
-        height: 100%;
-    }
+  #map {
+    width: 100%;
+    height: 100%;
+    position: relative;
+  }
+
+  .toggle-button {
+    position: absolute;
+    top: 20px;
+    right: 20px;
+    z-index: 10;
+    background-color: white;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    padding: 10px;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+    display: flex;
+    align-items: center;
+    font-family: sans-serif;
+    cursor: pointer;
+  }
+  
+  .toggle-button.active {
+    background-color: #f8f8f8;
+  }
+  
+  .toggle-icon {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background-color: #FF0000;
+    margin-right: 8px;
+    opacity: 0.7;
+  }
 </style>
