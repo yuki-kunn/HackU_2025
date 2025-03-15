@@ -1,20 +1,98 @@
 <script lang="ts">
-  import { onDestroy, createEventDispatcher } from 'svelte';
-  import type { Landmark } from './utils/landmarkUtils';
-  import { getLandmarkId, getLandmarkColor, createLandmarkInfoContent } from './utils/landmarkUtils';
+  import { onMount, onDestroy, createEventDispatcher } from 'svelte';
+  import { getLandmarkId, getLandmarkColor, createLandmarkInfoContent, type Landmark } from './utils/landmarkUtils';
+  import { loadVisitedLandmarks, loadVisitedLandmarkDetails, addVisitedLandmarkWithDetails, type StoredLandmark } from './utils/storageUtils';
   import { isWithinDistance } from './utils/mapUtils';
-  import { loadVisitedLandmarks, saveVisitedLandmarks } from './utils/storageUtils';
   
+  // Props
   export let map: google.maps.Map;
   export let userLocation: google.maps.LatLngLiteral | null = null;
   
+  // 内部状態
   let landmarkMarkers: google.maps.Marker[] = [];
-  let visitedLandmarks: Set<string> = loadVisitedLandmarks();
+  let visitedLandmarks: Set<string>;
+  let visitedLandmarkDetails: StoredLandmark[] = [];
+  let permanentMarkers: google.maps.Marker[] = [];
   
+  // グローバル変数として現在開いている InfoWindow を保持
+  let currentInfoWindow: google.maps.InfoWindow | null = null;
+  
+  // イベント通知用
   const dispatch = createEventDispatcher();
   
+  // ページ読み込み時にローカルストレージから訪問済みランドマークを読み込む
+  onMount(() => {
+    visitedLandmarks = loadVisitedLandmarks();
+    visitedLandmarkDetails = loadVisitedLandmarkDetails();
+    
+    // 訪問済みランドマークを常時表示
+    displayPermanentLandmarks();
+  });
+  
   /**
-   * ランドマークがユーザーの位置から指定距離内にあるか確認
+   * 保存済みのランドマークを常時表示する
+   */
+  function displayPermanentLandmarks() {
+    // 既存の永続マーカーをクリア
+    clearPermanentMarkers();
+    
+    visitedLandmarkDetails.forEach(landmark => {
+      if (!landmark.latitude || !landmark.longitude) return;
+      
+      // マーカー色を決定
+      const iconColor = landmark.color || getLandmarkColor(landmark.genre_code || '');
+      
+      const marker = new google.maps.Marker({
+        position: { lat: landmark.latitude, lng: landmark.longitude },
+        map,
+        title: landmark.name || 'Unknown landmark',
+        icon: {
+          path: google.maps.SymbolPath.CIRCLE,
+          scale: 6,
+          fillColor: iconColor,
+          fillOpacity: 1.0,
+          strokeColor: 'white',
+          strokeWeight: 1
+        }
+      });
+      
+      // クリックでランドマーク情報を表示
+      const infoContent = `
+        <div>
+          <h3>${landmark.name || 'Unknown landmark'}</h3>
+          <p>✓ 訪問済み</p>
+        </div>
+      `;
+      
+      const infoWindow = new google.maps.InfoWindow({
+        content: infoContent
+      });
+      
+      marker.addListener('click', () => {
+        // 既に開いている InfoWindow があれば閉じる
+        if (currentInfoWindow) {
+          currentInfoWindow.close();
+        }
+        infoWindow.open(map, marker);
+        currentInfoWindow = infoWindow;
+      });
+      
+      permanentMarkers.push(marker);
+    });
+    
+    console.log(`Displayed ${permanentMarkers.length} permanent landmarks`);
+  }
+  
+  /**
+   * 永続マーカーをクリア
+   */
+  function clearPermanentMarkers() {
+    permanentMarkers.forEach(marker => marker.setMap(null));
+    permanentMarkers = [];
+  }
+
+  /**
+   * 近くのランドマークをチェックし、訪問済みにする
    */
   function checkNearbyLandmarks(landmarks: Landmark[], userPos: google.maps.LatLngLiteral) {
     if (!userPos) return;
@@ -28,17 +106,71 @@
       // 50m以内に入ったランドマークを訪問済みとして記録
       if (isWithinDistance(userPos, landmarkPos, 50)) {
         if (!visitedLandmarks.has(landmarkId)) {
+          // 新規訪問を記録
           visitedLandmarks.add(landmarkId);
-          saveVisitedLandmarks(visitedLandmarks);
+          // ローカルストレージに保存
+          addVisitedLandmarkWithDetails({
+            id: landmarkId,
+            name: landmark.name,
+            latitude: Number(landmark.latitude),
+            longitude: Number(landmark.longitude),
+            genre_code: landmark.genre_code,
+            color: getLandmarkColor(landmark.genre_code)
+          });
           newlyVisited.push(landmark);
         }
       }
     });
-    
-    // 新しく訪問したランドマークがあれば通知
+
+    // 新しく訪問したランドマークがあれば通知イベントを発行
     if (newlyVisited.length > 0) {
       dispatch('landmarkVisited', { landmarks: newlyVisited });
     }
+  }
+  
+  /**
+   * 新しい永続マーカーを追加
+   */
+  function addPermanentMarker(landmark: StoredLandmark) {
+    const iconColor = landmark.color || getLandmarkColor(landmark.genre_code || '');
+    
+    const marker = new google.maps.Marker({
+      position: { lat: landmark.latitude, lng: landmark.longitude },
+      map,
+      title: landmark.name,
+      icon: {
+        path: google.maps.SymbolPath.CIRCLE,
+        scale: 6,
+        fillColor: iconColor,
+        fillOpacity: 1.0,
+        strokeColor: 'white',
+        strokeWeight: 1
+      },
+      animation: google.maps.Animation.DROP
+    });
+    
+    // クリックでランドマーク情報を表示
+    const infoContent = `
+      <div>
+        <h3>${landmark.name || 'Unknown landmark'}</h3>
+        <p>✓ 訪問済み</p>
+      </div>
+    `;
+    
+    const infoWindow = new google.maps.InfoWindow({
+      content: infoContent
+    });
+    
+    marker.addListener('click', () => {
+      // 既に開いている InfoWindow があれば閉じる
+      if (currentInfoWindow) {
+        currentInfoWindow.close();
+      }
+      infoWindow.open(map, marker);
+      currentInfoWindow = infoWindow;
+    });
+    
+    permanentMarkers.push(marker);
   }
   
   /**
@@ -68,35 +200,44 @@
       // 座標データの取得
       const lat = Number(landmark.latitude);
       const lng = Number(landmark.longitude);
-      
-      if (isNaN(lat) || isNaN(lng)) {
-        console.warn('Invalid coordinates for landmark:', landmark);
-        return;
+      if (isNaN(lat) || isNaN(lng)) return;
+      const landmarkPos = { lat, lng };
+
+      // ユーザーの現在地が取得できる場合、半径2km以内なら表示
+      if (userLocation && !isWithinDistance(userLocation, landmarkPos, 2000)) {
+        return; // 2km以上離れている場合はスキップ
       }
       
       const landmarkId = getLandmarkId(landmark);
       const isVisited = visitedLandmarks.has(landmarkId);
       
-      // 未訪問のランドマークは表示しない（訪問済みのみ表示）
-      if (!isVisited) {
-        return;
-      }
-      
       // ジャンルに基づいてアイコンの色を決定
       const iconColor = getLandmarkColor(landmark.genre_code);
+      
+      // 未訪問のランドマークはハテナアイコンで表示
+      const markerIcon = {
+        path: google.maps.SymbolPath.CIRCLE,
+        scale: 6,
+        fillColor: isVisited ? iconColor : '#888888', // 未訪問は灰色
+        fillOpacity: isVisited ? 1.0 : 0.5,
+        strokeColor: 'white',
+        strokeWeight: 1
+      };
+      
+      // 未訪問のランドマークは「?」のラベルを表示
+      const markerLabel = isVisited ? null : {
+        text: "?",
+        color: "#FFFFFF",
+        fontSize: "14px",
+        fontWeight: "bold"
+      };
       
       const marker = new google.maps.Marker({
         position: { lat, lng },
         map,
         title: landmark.name || 'Unknown landmark',
-        icon: {
-          path: google.maps.SymbolPath.CIRCLE,
-          scale: 6,
-          fillColor: iconColor,
-          fillOpacity: isVisited ? 1.0 : 0.5, // 訪問済みは濃く表示
-          strokeColor: 'white',
-          strokeWeight: 1
-        }
+        icon: markerIcon,
+        label: markerLabel
       });
       
       // クリックでランドマーク情報を表示
@@ -105,14 +246,19 @@
       });
       
       marker.addListener('click', () => {
+        // 既に開いている InfoWindow があれば閉じる
+        if (currentInfoWindow) {
+          currentInfoWindow.close();
+        }
         infoWindow.open(map, marker);
+        currentInfoWindow = infoWindow;
       });
       
       // マーカー配列に追加
       landmarkMarkers.push(marker);
     });
     
-    console.log(`Displayed ${landmarkMarkers.length} landmarks (visited only)`);
+    console.log(`Displayed ${landmarkMarkers.length} landmarks`);
   }
   
   // userLocationの変更を監視
@@ -137,5 +283,6 @@
   
   onDestroy(() => {
     clearLandmarkMarkers();
+    clearPermanentMarkers();
   });
 </script>

@@ -3,7 +3,8 @@
   import UserLocation from './map/UserLocation.svelte';
   import LandmarkManager from './map/LandmarkManager.svelte';
   import CrimeAreaManager from './map/CrimeAreaManager.svelte';
-  import VisitNotification from './map/VisitNotification.svelte';
+  import DiscoveryNotification from './map/DiscoveryNotification.svelte';
+  import MapSidebar from './map/MapSidebar.svelte';
   import type { Landmark } from './map/utils/landmarkUtils';
 
   let map: google.maps.Map;
@@ -19,6 +20,67 @@
   let showNotification = false;
   let currentNotification: Landmark | null = null;
   let notificationQueue: Landmark[] = [];
+  let showDiscoveryNotification = false;
+  let currentDiscovery = null;
+  let discoveryQueue: any[] = [];
+  
+  // 追加：クエスト管理用変数・関数
+  let activeQuest = null;
+ 
+  // ※visitedLandmarks と landmarkManagerComponent.landmarks は既存の状態として存在する前提です
+  async function ensureLandmarkDataReady() {
+    const stored = localStorage.getItem('visited_landmarks');
+    // たとえば、空の配列や null の場合、データが未登録と判断
+    if (!stored || JSON.parse(stored).length === 0) {
+      // LandmarkManager コンポーネント等から現在のランドマークデータを取得するか、
+      // サーバーから再取得して localStorage に保存する
+      // ※ここでは fetchLandmarksFromBackend() はバックエンドからデータを取得する仮の関数です
+      const data = await fetchLandmarksFromBackend(); 
+      localStorage.setItem('visited_landmarks', JSON.stringify(data));
+    }
+  }
+
+  // Reactive に LandmarkManager の準備状態を監視
+  $: landmarksReady = landmarkManagerComponent && landmarkManagerComponent.landmarks && landmarkManagerComponent.landmarks.length > 0;
+
+  async function triggerQuest() {
+    if (!userLocation) {
+      alert('現在地が取得されていません');
+      return;
+    }
+    if (!landmarksReady) {
+      alert('ランドマークの準備ができていません。再試行します...');
+      setTimeout(triggerQuest, 2000); // 2秒後に再試行
+      return;
+    }
+    const allLandmarks = landmarkManagerComponent.landmarks;
+    // localStorageから visited_landmarks を読み出す (例)
+    const stored = localStorage.getItem('visited_landmarks') || '[]';
+    const visitedSet = new Set(JSON.parse(stored));
+    
+    // 範囲条件を無視し、visited に含まれていないランドマークからランダムに選択
+    const filtered = allLandmarks.filter(l => !visitedSet.has(l.id));
+    
+    if (filtered.length === 0) {
+      alert('保存されていないランドマークがありません。');
+      return;
+    }
+    
+    activeQuest = filtered[Math.floor(Math.random() * filtered.length)];
+    // クエスト提示処理（表示等）を実行する
+  }
+
+  function acceptQuest() {
+    if (activeQuest) {
+      // ローカルストレージに "active_quests" キーで保存。既存のデータがあれば追加
+      let quests = JSON.parse(localStorage.getItem('active_quests') || '[]');
+      activeQuest.questStatus = 'クエスト受注中';
+      quests.push(activeQuest);
+      localStorage.setItem('active_quests', JSON.stringify(quests));
+      alert(`クエスト「${activeQuest.name}」を受注しました！`);
+      activeQuest = null;
+    }
+  }
   
   /**
    * 位置情報と共に近くのランドマークを取得する関数
@@ -135,15 +197,21 @@
    * ランドマーク訪問時の処理
    */
   function handleLandmarkVisited(event: CustomEvent) {
-    const newlyVisited = event.detail.landmarks;
-    if (newlyVisited && newlyVisited.length > 0) {
+    const newLandmarks = event.detail.landmarks;
+    
+    newLandmarks.forEach(landmark => {
       // 通知キューに追加
-      notificationQueue = [...notificationQueue, ...newlyVisited];
-      
-      // 通知が表示されていなければ表示開始
-      if (!showNotification && notificationQueue.length > 0) {
-        showNextNotification();
-      }
+      notificationQueue.push(landmark);
+      discoveryQueue.push(landmark);
+    });
+    
+    // 通知が表示されていない場合は、次の通知を表示
+    if (!showNotification) {
+      showNextNotification();
+    }
+    
+    if (!showDiscoveryNotification) {
+      showNextDiscovery();
     }
   }
 
@@ -161,6 +229,16 @@
   }
 
   /**
+   * 次の発見通知を表示
+   */
+  function showNextDiscovery() {
+    if (discoveryQueue.length === 0) return;
+    
+    currentDiscovery = discoveryQueue.shift();
+    showDiscoveryNotification = true;
+  }
+
+  /**
    * 通知クローズ時の処理
    */
   function handleNotificationClose() {
@@ -170,6 +248,19 @@
     // キューに次の通知があれば表示
     if (notificationQueue.length > 0) {
       setTimeout(showNextNotification, 300); // 少し遅延させて表示
+    }
+  }
+
+  /**
+   * 通知クローズ時の処理
+   */
+  function handleDiscoveryClose() {
+    showDiscoveryNotification = false;
+    currentDiscovery = null;
+    
+    // キューに次の通知があれば表示
+    if (discoveryQueue.length > 0) {
+      setTimeout(showNextDiscovery, 500); // 少し遅延させて表示
     }
   }
 
@@ -195,14 +286,19 @@
           "stylers": [{ "color": "#0e1626" }]
         },
         {
+          "featureType": "road",
+          "elementType": "labels",
+          "stylers": [{ "visibility": "off" }]
+        },
+        {
           "featureType": "administrative.locality",
           "elementType": "labels.text.fill",
           "stylers": [{ "color": "#b0b0b0" }]
         },
         {
           "featureType": "poi",
-          "elementType": "labels.text.fill",
-          "stylers": [{ "color": "#b0b0b0" }]
+          "elementType": "labels",
+          "stylers": [{ "visibility": "off" }]
         },
         {
           "featureType": "poi.park",
@@ -211,8 +307,8 @@
         },
         {
           "featureType": "poi.park",
-          "elementType": "labels.text.fill",
-          "stylers": [{ "color": "#5b757f" }]
+          "elementType": "labels.text",
+          "stylers": [{ "visibility": "off" }]
         },
         {
           "featureType": "road",
@@ -225,29 +321,9 @@
           "stylers": [{ "color": "#8a9aab" }]
         },
         {
-          "featureType": "road.highway",
-          "elementType": "geometry",
-          "stylers": [{ "color": "#1b3553" }]
-        },
-        {
-          "featureType": "road.highway",
-          "elementType": "geometry.stroke",
-          "stylers": [{ "color": "#1b3553" }]
-        },
-        {
-          "featureType": "road.highway",
-          "elementType": "labels.text.fill",
-          "stylers": [{ "color": "#b0c3d5" }]
-        },
-        {
           "featureType": "transit",
-          "elementType": "geometry",
-          "stylers": [{ "color": "#182731" }]
-        },
-        {
-          "featureType": "transit.station",
-          "elementType": "labels.text.fill",
-          "stylers": [{ "color": "#d2d2d2" }]
+          "elementType": "labels",
+          "stylers": [{ "visibility": "off" }]
         },
         {
           "featureType": "water",
@@ -256,8 +332,8 @@
         },
         {
           "featureType": "water",
-          "elementType": "labels.text.fill",
-          "stylers": [{ "color": "#515c6d" }]
+          "elementType": "labels.text",
+          "stylers": [{ "visibility": "off" }]
         }
       ]
     };
@@ -270,6 +346,15 @@
 </script>
 
 <div id="map"></div>
+
+<!-- Yahoo! JAPAN attribution snippet -->
+<div class="yahoo-attribution">
+  <!-- Begin Yahoo! JAPAN Web Services Attribution Snippet -->
+  <span style="margin:15px 15px 15px 15px">
+    <a href="https://developer.yahoo.co.jp/sitemap/">Webサービス by Yahoo! JAPAN</a>
+  </span>
+  <!-- End Yahoo! JAPAN Web Services Attribution Snippet -->
+</div>
 
 {#if map}
   <UserLocation 
@@ -292,21 +377,36 @@
     bind:showCrimeAreas
     bind:this={crimeAreaManagerComponent}
   />
+  
+  <!-- サイドバー -->
+  <MapSidebar bind:showCrimeAreas={showCrimeAreas} />
 {/if}
 
-<!-- 犯罪エリア表示切り替えボタン -->
-<button class="toggle-button" class:active={showCrimeAreas} on:click={toggleCrimeAreas}>
-    <div class="toggle-icon"></div>
-    犯罪多発エリア {showCrimeAreas ? 'ON' : 'OFF'}
-</button>
 
-<!-- 訪問通知 -->
-{#if showNotification && currentNotification}
-  <VisitNotification 
-    landmark={currentNotification}
-    on:close={handleNotificationClose}
+
+
+<!-- 発見通知 -->
+{#if showDiscoveryNotification && currentDiscovery}
+  <DiscoveryNotification 
+    landmark={currentDiscovery}
+    on:close={handleDiscoveryClose}
   />
 {/if}
+
+<!-- クエストトリガー＆表示用セクション -->
+<div class="quest-section">
+  <button disabled={!landmarksReady} on:click={triggerQuest}>
+    1000m歩いた！クエスト探索
+  </button>
+  {#if activeQuest}
+    <div class="quest-popup">
+      <p><strong>新しいクエスト:</strong> {activeQuest.name}</p>
+      <p>住所: {activeQuest.address}</p>
+      <p>ジャンルコード: {activeQuest.genre_code}</p>
+      <button on:click={acceptQuest}>クエスト受注</button>
+    </div>
+  {/if}
+</div>
 
 <style>
   #map {
@@ -314,33 +414,51 @@
     height: 100%;
     position: relative;
   }
-
-  .toggle-button {
+  .quest-section {
     position: absolute;
-    top: 20px;
-    right: 20px;
+    bottom: 20px;
+    left: 20px;
     z-index: 10;
-    background-color: white;
-    border: 1px solid #ccc;
+  }
+  .quest-section button {
+    padding: 8px 12px;
+    border: none;
     border-radius: 4px;
-    padding: 10px;
-    box-shadow: 0 2px 6px rgba(0,0,0,0.3);
-    display: flex;
-    align-items: center;
-    font-family: sans-serif;
+    background-color: #4285F4;
+    color: white;
+    cursor: pointer;
+    font-size: 14px;
+  }
+  .quest-popup {
+    margin-top: 10px;
+    padding: 12px;
+    background-color: white;
+    border-radius: 6px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+  }
+  .quest-popup p {
+    margin: 4px 0;
+    font-size: 14px;
+  }
+  .quest-popup button {
+    margin-top: 8px;
+    padding: 6px 10px;
+    font-size: 14px;
+    background-color: #34A853;
+    border: none;
+    color: white;
+    border-radius: 4px;
     cursor: pointer;
   }
-  
-  .toggle-button.active {
-    background-color: #f8f8f8;
-  }
-  
-  .toggle-icon {
-    width: 24px;
-    height: 24px;
-    border-radius: 50%;
-    background-color: #FF0000;
-    margin-right: 8px;
-    opacity: 0.7;
+  .yahoo-attribution {
+    position: absolute;
+    bottom: 10px;
+    right: 10px;
+    font-size: 10px;
+    color: #666;
+    background-color: rgba(255,255,255,0.7);
+    padding: 4px 8px;
+    border-radius: 4px;
+    z-index: 100;
   }
 </style>
