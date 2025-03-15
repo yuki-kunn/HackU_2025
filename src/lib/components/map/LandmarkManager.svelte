@@ -217,11 +217,11 @@
       // 未訪問のランドマークはハテナアイコンで表示
       const markerIcon = {
         path: google.maps.SymbolPath.CIRCLE,
-        scale: 6,
+        scale: 10, // スケールを大きくする (以前は 8 程度と想定)
         fillColor: isVisited ? iconColor : '#888888', // 未訪問は灰色
         fillOpacity: isVisited ? 1.0 : 0.5,
         strokeColor: 'white',
-        strokeWeight: 1
+        strokeWeight: 2
       };
       
       // 未訪問のランドマークは「?」のラベルを表示

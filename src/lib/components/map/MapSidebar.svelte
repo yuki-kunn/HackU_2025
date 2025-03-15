@@ -1,26 +1,91 @@
 <script lang="ts">
-  export let showCrimeAreas: boolean = true;
+  import { onMount, onDestroy, createEventDispatcher } from 'svelte';
+  import QuestCard from './QuestCard.svelte';
   
-  function toggleCrimeAreas() {
-    showCrimeAreas = !showCrimeAreas;
+  // イベントディスパッチャー
+  const dispatch = createEventDispatcher();
+  
+  // アクティブなクエスト一覧
+  let activeQuests = [];
+  
+  // ローカルストレージからクエスト情報を読み込む
+  function loadActiveQuests() {
+    try {
+      const stored = localStorage.getItem('active_quests');
+      if (stored) {
+        activeQuests = JSON.parse(stored);
+      } else {
+        activeQuests = [];
+      }
+    } catch (error) {
+      console.error('Failed to load quests from localStorage:', error);
+      activeQuests = [];
+    }
   }
+  
+  // クエスト更新イベントのハンドラ
+  function handleQuestUpdate() {
+    loadActiveQuests();
+  }
+  
+  // クエスト破棄処理
+  function handleAbandonQuest(event) {
+    const questId = event.detail.questId;
+    
+    // ローカルストレージから削除
+    let quests = JSON.parse(localStorage.getItem('active_quests') || '[]');
+    quests = quests.filter(quest => quest.id !== questId);
+    localStorage.setItem('active_quests', JSON.stringify(quests));
+    
+    // UI更新
+    activeQuests = activeQuests.filter(quest => quest.id !== questId);
+  }
+  
+  // 目的地への移動
+  function handleNavigateToQuest(event) {
+    const { latitude, longitude, name } = event.detail;
+    
+    // 親コンポーネントにナビゲーション要求を通知
+    dispatch('navigateToLocation', {
+      latitude,
+      longitude,
+      name
+    });
+  }
+  
+  onMount(() => {
+    loadActiveQuests();
+    
+    // クエスト更新イベントをリッスン
+    window.addEventListener('localStorageQuestUpdated', handleQuestUpdate);
+  });
+  
+  onDestroy(() => {
+    window.removeEventListener('localStorageQuestUpdated', handleQuestUpdate);
+  });
 </script>
 
 <div class="sidebar">
   <div class="sidebar-content">
     <div class="sidebar-section">
       <h3>マップオプション</h3>
-      
-      <div class="toggle-option">
-        <button 
-          class="toggle-button" 
-          class:active={showCrimeAreas} 
-          on:click={toggleCrimeAreas}
-        >
-          <div class="toggle-icon"></div>
-          <span>犯罪多発エリア {showCrimeAreas ? 'ON' : 'OFF'}</span>
-        </button>
-      </div>
+    </div>
+    
+    <div class="sidebar-section">
+      <h3>進行中のクエスト <span class="quest-count">{activeQuests.length}</span></h3>
+      {#if activeQuests.length > 0}
+        <div class="quest-list">
+          {#each activeQuests as quest (quest.id)}
+            <QuestCard 
+              {quest}
+              on:abandon={handleAbandonQuest}
+              on:navigate={handleNavigateToQuest}
+            />
+          {/each}
+        </div>
+      {:else}
+        <p class="empty-state">進行中のクエストはありません</p>
+      {/if}
     </div>
   </div>
 </div>
@@ -30,15 +95,21 @@
     position: absolute;
     top: 10px;
     left: 10px;
-    width: 220px;
+    width: 240px;
+    max-height: calc(100vh - 20px);
     background-color: white;
     border-radius: 8px;
     box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15);
     z-index: 10;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
   }
   
   .sidebar-content {
     padding: 15px;
+    overflow-y: auto;
+    max-height: calc(100vh - 20px);
   }
   
   .sidebar-section {
@@ -50,39 +121,27 @@
     font-size: 14px;
     font-weight: bold;
     color: #333;
-  }
-  
-  .toggle-option {
-    margin-bottom: 10px;
-  }
-  
-  .toggle-button {
-    width: 100%;
-    padding: 8px 10px;
-    border: 1px solid #ccc;
-    border-radius: 4px;
-    background-color: white;
     display: flex;
+    justify-content: space-between;
     align-items: center;
-    cursor: pointer;
-    font-size: 13px;
-    transition: background-color 0.2s;
   }
   
-  .toggle-button.active {
-    background-color: #f8f8f8;
+  .quest-count {
+    background-color: #4285F4;
+    color: white;
+    font-size: 11px;
+    padding: 2px 6px;
+    border-radius: 10px;
   }
   
-  .toggle-icon {
-    width: 16px;
-    height: 16px;
-    border-radius: 50%;
-    background-color: #FF0000;
-    margin-right: 8px;
-    opacity: 0.7;
+  .quest-list {
+    max-height: 300px;
+    overflow-y: auto;
   }
   
-  .toggle-button span {
-    flex: 1;
+  .empty-state {
+    font-size: 12px;
+    color: #888;
+    font-style: italic;
   }
 </style>

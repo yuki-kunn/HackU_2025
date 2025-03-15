@@ -11,6 +11,7 @@
     <Sidebar />
     <div class="main-content">
         <Map />
+        
     </div>
 </div>
 
