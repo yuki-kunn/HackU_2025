@@ -24,6 +24,64 @@
   let currentDiscovery = null;
   let discoveryQueue: any[] = [];
   
+  // 追加：クエスト管理用変数・関数
+  let activeQuest = null;
+ 
+  // ※visitedLandmarks と landmarkManagerComponent.landmarks は既存の状態として存在する前提です
+  async function ensureLandmarkDataReady() {
+    const stored = localStorage.getItem('visited_landmarks');
+    // たとえば、空の配列や null の場合、データが未登録と判断
+    if (!stored || JSON.parse(stored).length === 0) {
+      // LandmarkManager コンポーネント等から現在のランドマークデータを取得するか、
+      // サーバーから再取得して localStorage に保存する
+      // ※ここでは fetchLandmarksFromBackend() はバックエンドからデータを取得する仮の関数です
+      const data = await fetchLandmarksFromBackend(); 
+      localStorage.setItem('visited_landmarks', JSON.stringify(data));
+    }
+  }
+
+  // Reactive に LandmarkManager の準備状態を監視
+  $: landmarksReady = landmarkManagerComponent && landmarkManagerComponent.landmarks && landmarkManagerComponent.landmarks.length > 0;
+
+  async function triggerQuest() {
+    if (!userLocation) {
+      alert('現在地が取得されていません');
+      return;
+    }
+    if (!landmarksReady) {
+      alert('ランドマークの準備ができていません。再試行します...');
+      setTimeout(triggerQuest, 2000); // 2秒後に再試行
+      return;
+    }
+    const allLandmarks = landmarkManagerComponent.landmarks;
+    // localStorageから visited_landmarks を読み出す (例)
+    const stored = localStorage.getItem('visited_landmarks') || '[]';
+    const visitedSet = new Set(JSON.parse(stored));
+    
+    // 範囲条件を無視し、visited に含まれていないランドマークからランダムに選択
+    const filtered = allLandmarks.filter(l => !visitedSet.has(l.id));
+    
+    if (filtered.length === 0) {
+      alert('保存されていないランドマークがありません。');
+      return;
+    }
+    
+    activeQuest = filtered[Math.floor(Math.random() * filtered.length)];
+    // クエスト提示処理（表示等）を実行する
+  }
+
+  function acceptQuest() {
+    if (activeQuest) {
+      // ローカルストレージに "active_quests" キーで保存。既存のデータがあれば追加
+      let quests = JSON.parse(localStorage.getItem('active_quests') || '[]');
+      activeQuest.questStatus = 'クエスト受注中';
+      quests.push(activeQuest);
+      localStorage.setItem('active_quests', JSON.stringify(quests));
+      alert(`クエスト「${activeQuest.name}」を受注しました！`);
+      activeQuest = null;
+    }
+  }
+  
   /**
    * 位置情報と共に近くのランドマークを取得する関数
    */
@@ -289,6 +347,15 @@
 
 <div id="map"></div>
 
+<!-- Yahoo! JAPAN attribution snippet -->
+<div class="yahoo-attribution">
+  <!-- Begin Yahoo! JAPAN Web Services Attribution Snippet -->
+  <span style="margin:15px 15px 15px 15px">
+    <a href="https://developer.yahoo.co.jp/sitemap/">Webサービス by Yahoo! JAPAN</a>
+  </span>
+  <!-- End Yahoo! JAPAN Web Services Attribution Snippet -->
+</div>
+
 {#if map}
   <UserLocation 
     {map}
@@ -315,11 +382,7 @@
   <MapSidebar bind:showCrimeAreas={showCrimeAreas} />
 {/if}
 
-<!-- 犯罪エリア表示切り替えボタン -->
-<button class="toggle-button" class:active={showCrimeAreas} on:click={toggleCrimeAreas}>
-    <div class="toggle-icon"></div>
-    犯罪多発エリア {showCrimeAreas ? 'ON' : 'OFF'}
-</button>
+
 
 
 <!-- 発見通知 -->
@@ -330,10 +393,72 @@
   />
 {/if}
 
+<!-- クエストトリガー＆表示用セクション -->
+<div class="quest-section">
+  <button disabled={!landmarksReady} on:click={triggerQuest}>
+    1000m歩いた！クエスト探索
+  </button>
+  {#if activeQuest}
+    <div class="quest-popup">
+      <p><strong>新しいクエスト:</strong> {activeQuest.name}</p>
+      <p>住所: {activeQuest.address}</p>
+      <p>ジャンルコード: {activeQuest.genre_code}</p>
+      <button on:click={acceptQuest}>クエスト受注</button>
+    </div>
+  {/if}
+</div>
+
 <style>
   #map {
     width: 100%;
     height: 100%;
     position: relative;
+  }
+  .quest-section {
+    position: absolute;
+    bottom: 20px;
+    left: 20px;
+    z-index: 10;
+  }
+  .quest-section button {
+    padding: 8px 12px;
+    border: none;
+    border-radius: 4px;
+    background-color: #4285F4;
+    color: white;
+    cursor: pointer;
+    font-size: 14px;
+  }
+  .quest-popup {
+    margin-top: 10px;
+    padding: 12px;
+    background-color: white;
+    border-radius: 6px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+  }
+  .quest-popup p {
+    margin: 4px 0;
+    font-size: 14px;
+  }
+  .quest-popup button {
+    margin-top: 8px;
+    padding: 6px 10px;
+    font-size: 14px;
+    background-color: #34A853;
+    border: none;
+    color: white;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+  .yahoo-attribution {
+    position: absolute;
+    bottom: 10px;
+    right: 10px;
+    font-size: 10px;
+    color: #666;
+    background-color: rgba(255,255,255,0.7);
+    padding: 4px 8px;
+    border-radius: 4px;
+    z-index: 100;
   }
 </style>

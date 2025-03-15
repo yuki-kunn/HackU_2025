@@ -200,10 +200,12 @@
       // 座標データの取得
       const lat = Number(landmark.latitude);
       const lng = Number(landmark.longitude);
-      
-      if (isNaN(lat) || isNaN(lng)) {
-        console.warn('Invalid coordinates for landmark:', landmark);
-        return;
+      if (isNaN(lat) || isNaN(lng)) return;
+      const landmarkPos = { lat, lng };
+
+      // ユーザーの現在地が取得できる場合、半径2km以内なら表示
+      if (userLocation && !isWithinDistance(userLocation, landmarkPos, 2000)) {
+        return; // 2km以上離れている場合はスキップ
       }
       
       const landmarkId = getLandmarkId(landmark);
